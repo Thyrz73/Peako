@@ -1,0 +1,47 @@
+variables:
+  CI_COMMIT_SHA: latest
+  CI_COMMIT_SHA_TEST: test
+
+before_script:
+  - echo "$DOCKER_PASSWORD" | docker login -u $DOCKER_USERNAME --password-stdin $DOCKER_REGISTRY
+
+stages:
+  - build
+  - test
+  - deploy
+
+build_image:
+  stage: build
+  image: docker:24.0
+  services:
+    - docker:24.0-dind
+  script:
+    - docker build -t $DOCKER_IMAGE:$CI_COMMIT_SHA .
+    - docker build -f Dockerfile.test -t $DOCKER_IMAGE:$CI_COMMIT_SHA_TEST .
+    - docker push $DOCKER_IMAGE:$CI_COMMIT_SHA
+    - docker push $DOCKER_IMAGE:$CI_COMMIT_SHA_TEST
+  only:
+    - merge_requests
+
+test:
+  stage: test
+  image: docker:24.0
+  services:
+    - docker:24.0-dind
+  script:
+    - docker pull $DOCKER_IMAGE:$CI_COMMIT_SHA_TEST
+    - docker run -e JWT_SECRET=${JWT_SECRET} -e SESSION_SECRET=${SESSION_SECRET} --rm $DOCKER_IMAGE:$CI_COMMIT_SHA_TEST npm run test || exit 1
+  only:
+    - merge_requests
+
+deploy:
+  stage: deploy
+  image: docker:24.0
+  services:
+    - docker:24.0-dind
+  script:
+    - echo "Deploying to production server"
+    - docker pull $DOCKER_IMAGE:$CI_COMMIT_SHA
+    - docker run -d -p 3000:3000 $DOCKER_IMAGE:$CI_COMMIT_SHA
+  only:
+    - main
